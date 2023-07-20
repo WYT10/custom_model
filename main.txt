@@ -1,0 +1,552 @@
+{
+camera setup -->
+    from maix import camera
+
+set frame size -->
+    camera.camera.config(size=(240,320))
+
+get frame -->
+    def lcdRotation(inputImg):
+
+        imageRotationBuffer = inputImg.crop(0, 0, 240, 320)
+        if ScreenOrientation:
+            imgRotationAim = image.new(size = (240, 320))
+            rotationAngle = +180
+        else:
+            imgRotationAim = image.new(size = (320, 240))
+            rotationAngle = +90
+        return imgRotationAim.draw_image(imageRotationBuffer.rotate(rotationAngle, adjust=1),0,0,alpha=1)
+
+
+
+    frame = lcdRotation(camera.capture())
+}
+
+{
+press A/B/C/D button -->
+    import sys
+    sys.path.append("/root/")
+    from CocoPi import BUTTON
+
+    key_A = BUTTON(14)
+    key_B = BUTTON(8)
+    key_C = BUTTON(13)
+    key_D = BUTTON(7)
+
+
+
+    if (key_X.is_pressed()):
+        ...
+
+release A/B/C/D -->
+    import sys
+    sys.path.append("/root/")
+    from CocoPi import BUTTON
+
+    key_A = BUTTON(14)
+    key_B = BUTTON(8)
+    key_C = BUTTON(13)
+    key_D = BUTTON(7)
+
+
+
+    if (key_X.is_pressed() == False):
+        ...
+}
+
+{
+get light sensor -->
+    class v83x_ADC():
+        def __init__(self, addr=b"0x05070080") -> None:
+            self.addr = addr
+            self.path = "/sys/class/sunxi_dump/dump"
+            self.file = open(self.path, "wb+")
+            self.last = self.value()
+        def __del__(self):
+            try:
+                if self.file:
+                    self.file.close()
+                    del self.file
+            except Exception as e:
+                pass
+        def value(self):
+            self.file.write(b"0x05070080")
+            self.file.seek(0)
+            return int(self.file.read()[:-1], 16)
+
+    v831_adc0 = v83x_ADC()
+
+    light_d = v831_adc0.value()
+
+get temp sensor -->
+    import sys
+    sys.path.append("/root/")
+    from CocoPi import AHT20
+
+    aht20 = AHT20(2)
+
+    temp = aht20.get_temperature()
+}
+
+{
+LCD setup -->
+    from maix import display
+    from maix import image
+    from maix import camera
+
+    camera.camera.config(size=(240,320))
+    image.load_freetype("/root/preset/fonts/simhei.ttf")
+
+    ScreenOrientation = False #True: Portrait; False: Landscape
+
+set front -->
+    image.load_freetype("/root/preset/fonts/CascadiaCodePL-Italic.ttf")
+
+draw blank canvas -->
+    canvas = image.new(size = (320, 240)) #width, height
+
+fill color -->
+    if ScreenOrientation:
+        canvas = image.new(size = (240, 320), color = (0,0,0), mode = "RGB")
+    else:
+        canvas = image.new(size = (320, 240), color = (0,0,0), mode = "RGB")
+    # rgb
+
+update frame -->
+    if ScreenOrientation:
+        canvasVER = canvas.crop(0,0,240,320)
+        canvasVER = canvasVER.rotate(-90, adjust=1)
+        display.show(canvasVER)
+    else:
+        display.show(canvas)
+
+clear frame -->
+    canvas.clear()
+
+rotate frame -->
+    def screenShow(inputImg,rotationAngle):
+        #global img_drop
+
+        if rotationAngle==90 or rotationAngle == 270:
+            screenCapture=inputImg.crop(0,0,240,320)
+        else:
+            screenCapture=inputImg.crop(0,0,320,240)
+        canvas_screenShow = screenCapture.rotate(-rotationAngle,adjust=1)
+        display.show(canvas_screenShow)
+
+
+
+    # screenShow(canvas,0)
+
+put txt -->
+    canvas.draw_string(0,0, "", scale = 1, color = (255,0,0) , thickness = 1)
+
+draw line -->
+    canvas.draw_line(0,0, 0,0, color=(255,0,0), thickness=1)
+
+draw retangle -->
+    canvas.draw_rectangle(0,0,0,0, color=(255,0,0), thickness=-1)
+
+darw circle -->
+    canvas.draw_circle(0,0, 2, color=(255, 0, 0), thickness=-1)
+
+add image -->
+    canvas.draw_image((image.open("/root/user/img/saved.jpg")),0,0,alpha=1)
+}
+
+{
+set up mic -->
+    import pyaudio
+    import wave
+    import os
+
+set path & duration -->
+    if(os.path.exists("/root/user/audio/record.wav")): # <--
+        os.system("rm /root/user/audio/record.wav") # <--
+    CHUNK = 1024
+    FORMAT = pyaudio.paInt16
+    CHANNELS = 1
+    RATE = 16000
+    RECORD_SECONDS = 5 # <--
+    WAVE_OUTPUT_FILENAME = "/root/user/audio/record.wav" # <--
+
+record -->
+    p = pyaudio.PyAudio()
+
+    stream = p.open(format=FORMAT,channels=CHANNELS,rate=RATE,input=True,frames_per_buffer=CHUNK)
+
+    print("* recording")
+
+    frames = []
+
+    for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+        data = stream.read(CHUNK,exception_on_overflow = False)
+        frames.append(data)
+
+    print("* done recording")
+
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+
+    wf = wave.open(WAVE_OUTPUT_FILENAME, "wb")
+    wf.setnchannels(CHANNELS)
+    wf.setsampwidth(p.get_sample_size(FORMAT))
+    wf.setframerate(RATE)
+    wf.writeframes(b"".join(frames))
+    wf.close()
+}
+
+{
+set up speaker -->
+    import os
+    import pyaudio
+    import wave
+    import time
+    import sys
+    sys.path.append("/root/")
+
+set volume -->
+    def voice_numberMap(value):
+        valueScaled = float(value - 0) / float(100)
+        return int(valueScaled * 31)
+
+    CHUNK = 1024
+    VOICESTATE = 0
+
+    VOICENUMP = str(voice_numberMap(25)) # <--
+    time.sleep(0.01)
+    SYSTEMVOICE = "amixer cset numid=8,iface=MIXER,name=\"LINEOUT volume\" "+ VOICENUMP+""
+
+laod file -->
+    if VOICESTATE == 0:
+        wf = wave.open("/root/preset/audio/luckystar.wav", "rb") # <--
+        p = pyaudio.PyAudio()
+
+        stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),channels=wf.getnchannels(),rate=wf.getframerate(),output=True)
+
+        data = wf.readframes(CHUNK)
+        VOICESTATE = 1
+
+play audio -->
+    if VOICESTATE == 1:
+        if len(data) > 0:
+            try:
+                stream.write(data)
+                data = wf.readframes(CHUNK)
+            except:
+                VOICESTATE = 0
+        else:
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
+            VOICESTATE = 0
+
+end play -->
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+}
+
+{
+turn off -->
+    os.system('poweroff')
+
+reboot -->
+    os.system('reboot')
+
+refresh dict -->
+    os.system('sync')
+
+system voice -->
+    def voice_numberMap(value):
+        valueScaled = float(value - 0) / float(100)
+        return int(valueScaled * 31)
+
+    VOICENUMP = str(voice_numberMap(25)) # <--
+    time.sleep(0.01)
+    SYSTEMVOICE = "amixer cset numid=8,iface=MIXER,name=\"LINEOUT volume\" "+ VOICENUMP+""
+    os.system(SYSTEMVOICE)
+
+** threading -->
+    import threading
+
+    def printNumber(n: int) -> None:
+        while True:
+            thread_calsss_fun()
+
+    def thread_calsss_fun():
+        global _BME,canvas,img_graphTransmission,ScreenOrientation,CHUNK,VOICESTATE
+
+
+
+    CocoPiThread = threading.Thread(target=printNumber, args=(1,))
+    CocoPiThread.start()
+}
+
+{
+save canvca -->
+    canvas.save("/root/user/img/saved.jpg")
+
+open image -->
+    x = image.open("/root/user/img/saved.jpg")
+
+flip image -->
+    x = canvas.flip(0) #0: vertical; 1: horizontal
+
+rotate image -->
+    x = canvas.rotate(-50, adjust=1) #-:clockwise; +:anti-clockwise
+
+resize image -->
+    x = canvas.resize(0, 0, padding = 0) # (0, 0, ...)
+
+crop image -->
+    x = canvas.crop(1, 0,3, 0) #x, y, width, height
+
+default color -->
+    Black: [(0,40)]
+    white: [(64,100)]
+    light red: [(45, 65, 40, 80, 40, 60)]
+    general green: [(45, 65, -50, -30, 0, 40)]
+    light blue: [(45, 65, -20, 30, -60, -20)]
+    orange: [(77, 55, 19, 61, 14, 108)]
+
+lane detection -->
+    line = canvas.find_line() #detection
+    
+    #draw lines <-- color
+    canvas.draw_line(line["rect"][0], line["rect"][1], line["rect"][2],line["rect"][3], color=(0,0,0), thickness=1) 
+    canvas.draw_line(line["rect"][2], line["rect"][3], line["rect"][4],line["rect"][5], color=(0,0,0), thickness=1)
+    canvas.draw_line(line["rect"][4], line["rect"][5], line["rect"][6],line["rect"][7], color=(0,0,0), thickness=1)
+    canvas.draw_line(line["rect"][6], line["rect"][7], line["rect"][0],line["rect"][1], color=(0,0,0), thickness=1)
+    
+    #plot the center <-- color
+    canvas.draw_circle(line["cx"], line["cy"], 4,color=(0,0,0), thickness=1)
+
+color range detection-->
+    def v831_find_blob_fun(lane_trackingimg,region1,COLOR):
+        IMGBLOB = lane_trackingimg.crop(region1[0],region1[1],region1[2],region1[3])
+        blobsCANVAS = IMGBLOB.find_blobs(COLOR, merge=True)
+        return blobsCANVAS
+
+    x = v831_find_blob_fun(canvas,(0, 0,0, 0),([(0,40)])) # (canvas, (x,y, width, height), (default colors))
+
+color line detection -->
+    _ld_color_detection_threshold = ([(0,40)]) # --> default colors
+    def v831_lane_tracking_setup_one(lane_trackingimg,region1):
+        global lane_trackingline
+        lane_trackingcanvas = lane_trackingimg.crop(region1[0],region1[1],region1[2],region1[3])
+        lane_trackingline = lane_trackingcanvas.find_line()
+        lane_trackingcanvas.draw_circle(lane_trackingline["cx"], lane_trackingline["cy"], 2,color=(0,255,0), thickness=1)
+        lane_trackingimg.draw_image(lane_trackingcanvas,region1[0],region1[1])
+        lane_trackingimg.draw_rectangle(region1[0],region1[1],region1[0]+region1[2],region1[1]+region1[3], color=(255,0,0), thickness=1)
+        lane_trackingline["cx"] = lane_trackingline["cx"] + region1[0]
+        lane_trackingline["cy"] = lane_trackingline["cy"] + region1[1]
+        return lane_trackingline
+
+    lane_trackingline1 = {}
+
+
+
+    x = v831_lane_tracking_setup_one(canvas,(0, 0,0, 0)) #(canvas, (x,y, width, height))
+
+2 region color lane detection -->
+    _ld_color_detection_threshold = ([(0,40)])
+    def v831_lane_tracking_setup(lane_trackingimg,region1,region2):
+        global lane_trackingline1,lane_trackingline2
+        lane_trackingcanvas1 = lane_trackingimg.crop(region1[0],region1[1],region1[2],region1[3])
+        lane_trackingcanvas2 = lane_trackingimg.crop(region2[0],region2[1],region2[2],region2[3])
+        lane_trackingline1 = lane_trackingcanvas1.find_line()
+        lane_trackingline2 = lane_trackingcanvas2.find_line()
+        lane_trackingcanvas1.draw_circle(lane_trackingline1["cx"], lane_trackingline1["cy"], 2,color=(0,255,0), thickness=1)
+        lane_trackingcanvas2.draw_circle(lane_trackingline2["cx"], lane_trackingline2["cy"], 2,color=(0,255,0), thickness=1)
+        lane_trackingimg.draw_image(lane_trackingcanvas1,region1[0],region1[1])
+        lane_trackingimg.draw_image(lane_trackingcanvas2,region2[0],region2[1])
+        lane_trackingimg.draw_rectangle(region1[0],region1[1],region1[0]+region1[2],region1[1]+region1[3], color=(255,0,0), thickness=1)
+        lane_trackingimg.draw_rectangle(region2[0],region2[1],region2[0]+region2[2],region2[1]+region2[3], color=(255,0,0), thickness=1)
+
+    lane_trackingline1 = {}
+    lane_trackingline2 = {}
+
+    v831_lane_tracking_setup(canvas,(0, 140,100, 240),(220, 140,320, 240)) # (canvas, (x,y, width, height), (x,y, width, height))
+
+get color from region -->
+    canvas.get_blob_color((0, 0, 0, 0), 0, 0) # ((x,y, width, height), ..)
+
+qr-code -->
+    x = canvas.find_qrcodes() #scan
+    data = i["payload"] # decode data / x,y,w,h
+}
+
+{
+video ini -->
+    import os
+    import pyaudio
+    import av
+    from maix import display
+    from maix import camera
+    from maix import image
+
+load video -->
+    pathToVideo = "/root/user/video/record.mp4"
+    containerVideo = av.open(pathToVideo)
+    streamVideo = containerVideo.streams.video[0]
+
+play -->
+    if "Video" in repr(i):
+        VideoImg = image.load(bytes(i.to_rgb().planes[0]), (streamVideo.width, streamVideo.height))
+        display.show(VideoImg) #break to pause
+
+video prop. -->
+    containerVideo.decode(video=0)
+
+video record ini -->
+    import os
+    import pyaudio
+    import av
+    from maix import display
+    from maix import camera
+    from maix import image
+
+    path_to_video = "/root/user/video/record.mp4"
+    fps = 10
+    container = av.open(path_to_video, mode='w')
+    stream = container.add_stream('h264', rate=fps) # h264 or mpeg4
+    stream.width = 320
+    stream.height = 240
+    stream.pix_fmt = 'yuv420p'
+
+record -->
+    frame = av.VideoFrame(canvas.width, canvas.height, 'rgb24')
+    frame.planes[0].update(canvas.tobytes())
+    for packet in stream.encode(frame):
+        container.mux(packet)
+
+stop -->
+    for packet in stream.encode():
+        container.mux(packet)
+
+    container.close()
+}
+
+{
+edge detection ini -->
+    import numpy as np
+
+    class Edge:
+        model = {
+            "param": "/root/preset/model/sobel_int8.param",
+            "bin": "/root/preset/model/sobel_int8.bin"
+        }
+        input_size = (224, 224, 3)
+        output_size = (222, 222, 3)
+        options = {
+            "model_type":  "awnn",
+            "inputs": {
+                "input0": input_size
+            },
+            "outputs": {
+                "output0": output_size
+            },
+            "mean": [127.5, 127.5, 127.5],
+            "norm": [0.0078125, 0.0078125, 0.0078125],
+        }
+        def __init__(self):
+            from maix import nn
+            print("-- load model:", self.model)
+            self.model = nn.load(self.model, opt=self.options)
+            print("-- load ok")
+        def __del__(self):
+            del self.model
+
+    m = Edge()
+
+load % edge detect -->
+    out = m.model.forward(img_edgedetection, quantize=True, layout="hwc") # img_edgedetection (frame)
+    out = out.astype(np.float32).reshape(m.output_size)
+    out = (np.ndarray.__abs__(out) * 255 / out.max()).astype(np.uint8)
+    data = out.tobytes()
+    edgeModel = img_edgedetection.load(data,(222, 222), mode="RGB")
+
+result -->
+    edgeModel
+
+handwrite ini -->
+    from maix import nn
+    from maix.nn import decoder
+
+    class Number_recognition:
+        mdsc_path = "/root/preset/model/Number.mud"
+        labels = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+        anchors = [1.0, 5.0, 1.35, 5.42, 0.49, 2.55, 0.86, 3.75, 0.65, 4.38]
+
+        def __init__(self):
+            self.model = nn.load(self.mdsc_path)
+            self.decoder = decoder.Yolo2(len(self.labels) , self.anchors , net_in_size = (224, 224) ,net_out_size = (7,7))
+        def __del__(self):
+            del self.model
+            del self.decoder
+        def cal_fps(self ,start , end):
+            one_second = 1
+            one_flash = end - start
+            fps = one_second / one_flash
+            return  fps
+
+    number_recognition = Number_recognition()
+
+load % handwrite detect -->
+    out = number_recognition.model.forward(img_mnist, quantize=1, layout = "hwc")
+    boxes, probs = number_recognition.decoder.run(out, nms=0.5, threshold=0.3, img_size=(224,224))
+    if len(boxes):
+        for boxesi, box in enumerate(boxes):
+            boxes[boxesi].append(probs[boxesi])
+
+results -->
+    recognized number: number_recognition.labels[i[4][0]] or len(boxes)
+    conf: i[4][1][i[4][0]]*100
+    x,y,w,h: 0,1,2,3
+    cx, cy: int((i[0] +i[0] + i[2])/2), int((i[1] + i[1] + i[3])/2)
+
+obj detect ini -->
+    from maix import nn
+    from maix.nn import decoder
+
+    model = {
+        "param": "/root/preset/model/yolo2_20class_awnn.param",
+        "bin": "/root/preset/model/yolo2_20class_awnn.bin"
+    }
+    options = {
+        "model_type":  "awnn",
+        "inputs": {
+            "input0": (224, 224, 3)
+        },
+        "outputs": {
+            "output0": (7, 7, (1+4+20)*5)
+        },
+        "mean": [127.5, 127.5, 127.5],
+        "norm": [0.0078125, 0.0078125, 0.0078125],
+    }
+    labels = ["aeroplane","bicycle","bird","boat","bottle","bus","car","cat","chair","cow","diningtable","dog","horse","motorbike","person","pottedplant","sheep","sofa","train","tvmonitor"]
+    anchors = [5.4, 5.38, 1.65, 2.09, 0.8, 1.83, 2.45, 4.14, 0.46, 0.8]
+    m = nn.load(model, opt=options)
+    yolo2_decoder = decoder.Yolo2(len(labels), anchors, net_in_size=(options["inputs"]["input0"][0], options["inputs"]["input0"][1]), net_out_size=(7, 7))
+
+load % obj detect -->
+    out = m.forward(img_objectrecognition.tobytes(), quantize=True, layout="hwc")
+    boxes, probs = yolo2_decoder.run(out, nms=0.3, threshold=0.3, img_size=(options["inputs"]["input0"][0], options["inputs"]["input0"][1]))
+    if len(boxes):
+        for boxesi, box in enumerate(boxes):
+            boxes[boxesi].append(probs[boxesi])
+
+results -->
+    name: labels[i[4][0]]
+    conf: i[4][1][i[4][0]]*100
+    x,y,w,h: 0,1,2,3
+    cx, cy: int((i[0] +i[0] + i[2])/2), int((i[1] + i[1] + i[3])/2)
+
+
+
+
+
+
+}
