@@ -544,9 +544,629 @@ results -->
     x,y,w,h: 0,1,2,3
     cx, cy: int((i[0] +i[0] + i[2])/2), int((i[1] + i[1] + i[3])/2)
 
+guesswork ini -->
+    from maix import nn
+    from maix.nn import decoder
 
+    class Mora:
+        mud_path = "/root/preset/model/mora_int8.mud"
+        labels = ["Scissors", "Stone" ,"Paper"]
+        anchors = [3.23, 3.25, 1.47, 1.55, 5.09, 5.33, 4.03, 4.28, 2.12, 2.56]
 
+        def __init__(self) -> None:
+            from maix import nn
+            self.model = nn.load(self.mud_path)
+            from maix.nn import decoder
+            self.decoder = decoder.Yolo2(len(self.labels) , self.anchors , net_in_size = (224, 224) ,net_out_size = (7,7))
 
+        def __del__(self):
+            del self.model
+            del self.decoder
+
+        def cal_fps(self ,start , end):
+            one_second = 1
+            one_flash = end - start
+            fps = one_second / one_flash
+            return  fps
+
+        def draw_rectangle_with_title(self ,img, box, disp_str , fps ):
+            img.draw_rectangle(box[0], box[1], box[0] + box[2], box[1] + box[3],color=(255, 0, 0), thickness=2)
+            img.draw_string(box[0], box[1] ,disp_str, scale=1,color=(222, 0, 3), thickness=2)
+            #img.draw_string(0, 0 ,"FPS :"+str(fps), scale=2 ,color=(0, 0, 255), thickness=2)
+
+        def process(self,input):
+            t =  time()
+            out = self.model.forward(input, quantize=1, layout = "hwc")
+            boxes, probs = self.decoder.run(out, nms=0.5, threshold=0.5, img_size=(224,224))
+            for i, box in enumerate(boxes):
+                class_id = probs[i][0]
+                prob = probs[i][1][class_id]
+                disp_str = "{}:{:.2f}%".format(self.labels[class_id], prob*100)
+                fps = self.cal_fps(t, time())
+                self.draw_rectangle_with_title(input, box, disp_str, fps)
+
+    Mora = Mora()
+
+load % guesswork detect -->
+    out = Mora.model.forward(img_guessworkrecognition, quantize=1, layout = "hwc")
+    boxes, probs = Mora.decoder.run(out, nms=0.5, threshold=0.5, img_size=(224,224))
+    if len(boxes):
+        for boxesi, box in enumerate(boxes):
+            boxes[boxesi].append(probs[boxesi])
+
+results -->
+    name: labels[i[4][0]]
+    conf: i[4][1][i[4][0]]*100
+    x,y,w,h: 0,1,2,3
+    cx, cy: int((i[0] +i[0] + i[2])/2), int((i[1] + i[1] + i[3])/2)
+
+face detection ini -->
+    from maix import nn
+    from maix.nn import decoder
+
+    model = {
+        "param": "/root/preset/model/yolo2_face_awnn.param",
+        "bin": "/root/preset/model/yolo2_face_awnn.bin"
+    }
+    labels = ["person"]
+    options = {
+        "model_type":  "awnn",
+        "inputs": {
+            "input0": (224, 224, 3)
+        },
+        "outputs": {
+            "output0": (7, 7, (1+4+len(labels))*5)
+        },
+        "mean": [127.5, 127.5, 127.5],
+        "norm": [0.0078125, 0.0078125, 0.0078125],
+    }
+    anchors = [1.19, 1.98, 2.79, 4.59, 4.53, 8.92, 8.06, 5.29, 10.32, 10.65]
+    m = nn.load(model, opt=options)
+    yolo2_decoder = decoder.Yolo2(len(labels), anchors, net_in_size=(options["inputs"]["input0"][0], options["inputs"]["input0"][1]), net_out_size=(7, 7))
+
+load % face detect -->
+    out = m.forward(img_facedetection.tobytes(), quantize=True, layout="hwc")
+    boxes, probs = yolo2_decoder.run(out, nms=0.3, threshold=0.3, img_size=(options["inputs"]["input0"][0], options["inputs"]["input0"][1]))
+    if len(boxes):
+        for boxesi, box in enumerate(boxes):
+            boxes[boxesi].append(probs[boxesi])
+
+results -->
+    name: 'face'
+    conf: i[4][1][i[4][0]]*100
+    x,y,w,h: 0,1,2,3
+    cx, cy: int((i[0] +i[0] + i[2])/2), int((i[1] + i[1] + i[3])/2)
+
+license detect ini -->
+    from maix import nn
+    from maix.nn import decoder
+
+    class LPR:
+        loc_model_path = "/root/preset/model/loc.mud"
+        reg_model_path = "/root/preset/model/reg.mud"
+        chars = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑",
+                "苏", "浙", "京", "闽", "赣", "鲁", "豫", "鄂", "湘", "粤",
+                "桂", "琼", "川", "贵", "云", "藏", "陕", "甘", "青", "宁",
+                "新", "警", "学", "A", "B",  "C",  "D",  "E",  "F",  "G",
+                "H",   "J",  "K",  "L", "M", "N",  "P",  "Q",  "R", "S",
+                        "T",  "U",  "V", "W", "X", "Y", "Z", "0", "1", "2", "3",
+                        "4", "5", "6", "7", "8", "9", "-"]
+
+        variances = [0.1, 0.2]
+        steps = [8, 16, 32]
+        min_sizes = [12, 24, 48, 96, 192, 320]
+        card_input_img = None
+
+        def __init__(self) -> None:
+            from maix import nn
+            self.loc_model = nn.load(self.loc_model_path, opt=None)
+            self.reg_model = nn.load(self.reg_model_path, opt=None)
+
+            from maix.nn import decoder
+            self.loc_decoder = decoder.license_plate_location(
+                [224, 224], self.steps, self.min_sizes, self.variances)
+            self.reg_decoder = decoder.CTC((1, 68, 18))
+
+        def __del__(self):
+            del self.loc_model
+            del self.loc_decoder
+
+        def cal_fps(self, start, end):
+            one_second = 1
+            one_flash = end - start
+            fps = one_second / one_flash
+            return fps
+
+        def draw_fps(self, img, fps):
+            img.draw_string(0, 0, "FPS :"+str(fps), scale=1,
+                            color=(255, 0, 255), thickness=1)
+
+        def draw_string(self, img, x, y, string, color):
+            img.draw_string(x, y, string, color=color)
+
+        def draw_paste(self, src, dst):
+            src.paste(dst, 0, 0)
+
+        def draw_rectangle(self, img, box):
+            img.draw_rectangle(box[0], box[1], box[2], box[3],
+                            color=(230, 230, 250), thickness=2)
+
+        def draw_point(self, img, landmark):
+            for i in range(4):
+                x = landmark[2 * i]
+                y = landmark[2 * i + 1]
+                img.draw_rectangle(x-2, y-2, x+2, y+2,
+                                color=(193, 255, 193), thickness=-1)
+
+        def process(self, input):
+            global CARDDATABOEX
+            self.card_input_img = input
+            # retinaface decoder only support chw layout
+            loc_out = self.loc_model.forward(input, quantize=1, layout="chw")
+            boxes, landmarks = self.loc_decoder.run(loc_out, nms=0.2, score_thresh=0.7, outputs_shape=[
+                                                    [1, 4, 2058], [1, 2, 2058], [1, 8, 2058]])
+            if len(boxes):
+                # print(boxes,landmarks)
+                for boxesi, box in enumerate(boxes):
+                    boxes[boxesi].append(landmarks[boxesi])
+            CARDDATABOEX = boxes
+        def get_card_data(self, landmark):
+            # landmark = i[4][:6]
+            reg_in = self.card_input_img.crop_affine(landmark, 94, 24)
+            reg_out = self.reg_model.forward(reg_in,  quantize=1, layout="chw")
+
+            LP_number = self.reg_decoder.run(reg_out)
+            string_LP = ""
+            for id in LP_number:
+                string_LP += self.chars[id]
+            return string_LP
+
+    LPRCARD  = LPR()
+
+    CARDDATABOEX = ""
+
+load % license detect -->
+    LPRCARD.process(canvas)
+
+results -->
+    name: LPRCARD.get_card_data(i[4][:6])
+    conf: i[4][1][i[4][0]]*100
+    x,y,w,h: 0,1,2-0,3-1
+    cx, cy: int((i[0] + i[2])/2), int((i[1] + i[3])/2)
+
+face recognition ini -->
+    from maix import nn
+    from maix.nn.app import face
+    from maix.nn.app.face import FaceRecognize
+
+    max_face_num = 4
+    detect_threshold = 0.5
+    detect_nms = 0.3
+    #score_threshold = 70
+    FEATURES = []
+
+    score_threshold = 70
+
+    CLASSNAMEFACELIST = ["Name1", "Name2", "Name3"]
+
+load % face recognize detect -->
+    class Face_Recognizer:
+        def __init__(self, threshold = 0.5, nms = 0.3, max_face_num = 1):
+            model = "/root/preset/model/retinaface.mud"
+            model_fe = "/root/preset/model/fe_resnet.mud"
+            self.input_size = (224, 224, 3)
+            input_size_fe = (128, 128, 3)
+            self.feature_len = 256
+            self.features = []
+            print("-- load model:", model)
+            m = nn.load(model)
+            print("-- load ok")
+            print("-- load model:", model_fe)
+            m_fe = nn.load(model_fe)
+            print("-- load ok")
+
+            self.recognizer = FaceRecognize(m, m_fe, self.feature_len, self.input_size, threshold, nms, max_face_num)
+            print("-- init end")
+
+        def get_faces(self, img, std_img = False):
+            faces = self.recognizer.get_faces(img, std_img)
+            return faces
+
+        def __len__(self):
+            return len(self.features)
+
+        def add_user(self, name, feature):
+            self.features.append([name, feature])
+            return True
+
+        def remove_user(self, name_del):
+            rm = None
+            for name, feature in self.features:
+                if name_del == name:
+                    rm = [name, feature]
+            if rm:
+                self.features.remove(rm)
+                return True
+            return False
+
+        def recognize(self, feature):
+            max_score = 0
+            uid = -1
+            for i, user in enumerate(self.features):
+                score = self.recognizer.compare(user[1], feature)
+                if score > max_score:
+                    max_score = score
+                    uid = i
+            if uid >= 0:
+                return self.features[uid][0], max_score
+            return None, 0
+
+        def get_input_size(self):
+            return self.input_size
+
+        def get_feature_len(self):
+            return self.feature_len
+
+        def darw_info(self, img, box, points, disp_str, bg_color=(255, 0, 0, 255), font_color=(255, 255, 255, 255), font_size=32):
+            font_wh = image.get_string_size(disp_str)
+            for p in points:
+                img.draw_rectangle(p[0] - 1, p[1] -1, p[0] + 1, p[1] + 1, color=bg_color)
+            img.draw_rectangle(box[0], box[1], box[0] + box[2], box[1] + box[3], color=bg_color, thickness=2)
+            if disp_str:
+                img.draw_rectangle(box[0], box[1] - font_wh[1], box[0] + font_wh[0], box[1], color=bg_color, thickness = -1)
+                img.draw_string(box[0], box[1] - font_wh[1], disp_str, color=font_color)
+
+        def darw_title(self, img, dis_size ,key_l = None, key_r =None):
+            if key_C:
+                key_l = "| "+ key_l
+                img.draw_string( 1, 2 ,key_l , scale = 1, color = (255, 255, 255), thickness = 2)
+            if key_D:
+                key_r = key_r+" |"
+                w = int(dis_size[0] - 4 - image.get_string_size(key_r)[0] * 1)
+                img.draw_string( w, 2 ,key_r , scale = 1, color = (255, 255, 255), thickness = 2)
+
+    FACERECGNIZER = Face_Recognizer(detect_threshold, detect_nms, max_face_num = max_face_num)
+
+    FACESRECOGNITONRESULT = FACERECGNIZER.get_faces(img_face_Recognizer)
+
+results -->
+    face info: i[3]
+    conf: i[0]
+    x,y,w,h: i[1][0], i[1][1], i[1][2], i[1][3]
+    cx, cy: int((i[1][2]+i[1][0]+i[1][0])/2), int((i[1][3]+i[1][1]+i[1][1])/2)
+
+recognize any face result -->
+    len(FACESRECOGNITONRESULT)
+
+save face data -->
+    FACERECGNIZER.add_user(CLASSNAMEFACELIST[len(FACERECGNIZER)], save_face_data) # save face data
+    FEATURES = FACERECGNIZER.features
+
+del last saved face data -->
+    FACERECGNIZER.remove_user(CLASSNAMEFACELIST[len(FACERECGNIZER)-1])
+    FEATURES = FACERECGNIZER.features
+
+save face data to path -->
+    import os
+    import json
+
+    def _CREATE_TEXT_FILE_WITH_CONTENT(_path, _data, _sep):
+        f = open(_path, "a")
+        f.write(_data + _sep)
+        f.close()
+
+    try:
+        os.remove("/root/user/model/recorded_face_features.py")
+    except:
+        pass
+    try:
+        _CREATE_TEXT_FILE_WITH_CONTENT("/root/user/model/recorded_face_features.py", json.dumps(FACERECGNIZER.features), "\r\n")
+
+    except:
+        pass
+
+load saved face data -->
+    import json
+
+    try:
+        with open("/root/user/model/recorded_face_features.py", "r") as file:
+            FACERECGNIZER.features = json.loads(file.read())
+    except:
+        pass
+
+result from screen -->
+    name of face: FACERECGNIZER.recognize(img_face_Recognizer)[0]
+    conf: FACERECGNIZER.recognize(img_face_Recognizer)[1]
+
+self-learning ini -->
+    from maix import nn
+
+    CLASSNUM = 3
+    SAMPLENUM = 15
+    CLASSNAMELIST = ["Object 1 Name", "Object 2 Name", "Object 3 Name"]
+
+load to class -->
+    from maix import nn
+    from maix.nn.app.classifier import Classifier
+
+    class Self_learn:
+        model = {
+            "param": "/root/preset/model/resnet18_1000_awnn.param",
+            "bin": "/root/preset/model/resnet18_1000_awnn.bin"
+        }
+        options = {
+            "model_type":  "awnn",
+            "inputs": {
+                "input0": (224, 224, 3)
+            },
+            "outputs": {
+                "190": (1, 1, 512)
+            },
+            "mean": [127.5, 127.5, 127.5],
+            "norm": [0.0176, 0.0176, 0.0176],
+        }
+        class_num = CLASSNUM  #学习类别
+        sample_num = SAMPLENUM  #学习类别总数量
+        curr_class = 0
+        curr_sample = 0
+        def __init__(self):
+            # print("-- load model:", self.model)
+            self.m = nn.load(self.model, opt=self.options)
+            # print("-- load ok")
+            # print("-- load classifier")
+            self.classifier = Classifier(self.m, self.class_num, self.sample_num, 512, 224, 224)
+            # print("-- load ok")
+
+    SELFLEARN = Self_learn()
+
+add class from frame -->
+    SELFLEARN.classifier.add_class_img(img_self_learning)
+
+take sample data -->
+    for i in range(5):
+    SELFLEARN.classifier.add_sample_img(img_self_learning)for i in range(5):
+    SELFLEARN.classifier.add_sample_img(img_self_learning)
+
+train -->
+    SELFLEARN.classifier.train()
+
+save -->
+    SELFLEARN.classifier.save("/root/module.bin")
+
+predict ->
+    SELFLEARNidx, SELFLEARNdistance = SELFLEARN.classifier.predict(img_self_learning)
+
+result -->
+    name: CLASSNAMELIST[SELFLEARNidx]
+    conf: 100-SELFLEARNdistance
+
+ini yolov2 -->
+    from maix import nn
+    from maix.nn import decoder
+
+    class Yolo:
+        labels = ["Object 1 Name", "Object 2 Name", "Object 3 Name"]
+        anchors = [1.19, 1.98, 2.79, 4.59, 4.53, 8.92, 8.06, 5.29, 10.32, 10.65]
+        m = {
+            "param": "/root/preset/model/yolov2_int8.param",
+            "bin": "/root/preset/model/yolov2_int8.bin"
+        }
+        options = {
+            "model_type":  "awnn",
+            "inputs": {
+                "input0": (224, 224, 3)
+            },
+            "outputs": {
+                "output0": (7, 7, (1+4+len(labels))*5)
+            },
+            "mean": [127.5, 127.5, 127.5],
+            "norm": [0.0078125, 0.0078125, 0.0078125],
+        }
+        def __init__(self):
+            from maix import nn
+            from maix.nn import decoder
+            self.model = nn.load(self.m, opt=self.options)
+            self.decoder = decoder.Yolo2(len(self.labels), self.anchors, net_in_size=(224, 224), net_out_size=(7, 7))
+        def __del__(self):
+            del self.model
+            del self.decoder
+    Yolo = Yolo()
+
+load % detect -->
+    out = Yolo.model.forward(img_modelrecognition, quantize=True, layout="hwc")
+    boxes, probs = Yolo.decoder.run(out, nms=0.3, threshold=0.5, img_size=(224, 224))
+    if len(boxes):
+        for boxesi, box in enumerate(boxes):
+            boxes[boxesi].append(probs[boxesi])
+
+results -->
+    name: Yolo.labels[i[4][0]]
+    x,y,w,h: 0,1,2,3
+    conf: i[4][1][i[4][0]]
+
+speech ini -->
+    import _coco_mfcc
+    import time
+
+    mfcc = _coco_mfcc.MFCC(is_reply=False)
+
+    RecordState = 0
+    recordFrequency = 0
+    recordResultData = None
+
+speech recongize % plot screen -->
+    number_take = 2 # 1 ~ 6
+
+    if RecordState == 0:
+        mfcc.recording(recordFrequency)
+        recordFrequency = recordFrequency + 1
+        time.sleep(1)
+        RecordState = 1
+    if RecordState == 1:
+        recordData = mfcc.state()
+        if recordData == mfcc._mfcc_result:
+            i.draw_string(0,30,"Recorded successfully", scale = 1, color = (0,204,204) , thickness = 1)
+            time.sleep(1)
+            if recordFrequency < number_take:
+                RecordState = 0
+        else:
+            i.draw_string(0,30, "Speek  "+str(recordFrequency)+" Speech fragment", scale = 1, color = (0,204,204) , thickness = 1)
+
+start recognize -->
+    if RecordState == 0:
+        mfcc.recognize()
+        recordResultData = None
+        time.sleep(1)
+        RecordState = 1
+
+when speech recognition has result -->
+    if RecordState == 1:
+        recordData = mfcc.state()
+        if recordData == mfcc._mfcc_result:
+            recordResultData = mfcc.result()
+            time.sleep(1)
+            RecordState = 0
+
+speech snippet -->
+    recordResultData == 0 # 0 ~ 5
+
+clean up speech study result -->
+    import _coco_mfcc
+
+    mfcc = _coco_mfcc.MFCC(is_reply=False)
+
+    mfcc.clear()
+}
+
+{
+onl face detect ini -->
+    import hashlib
+    import base64
+    import hmac
+    from time import mktime
+    from datetime import datetime
+    from wsgiref.handlers import format_date_time
+    from urllib.parse import urlencode
+    import os
+    import traceback
+    import json
+    import requests
+
+    class AssembleHeaderException(Exception):
+        def __init__(self, msg):
+            self.message = msg
+
+    class Url:
+        def __init__(this, host, path, schema):
+            this.host = host
+            this.path = path
+            this.schema = schema
+            pass
+
+    # 进行sha256加密和base64编码
+    def sha256base64(data):
+        sha256 = hashlib.sha256()
+        sha256.update(data)
+        digest = base64.b64encode(sha256.digest()).decode(encoding="utf-8")
+        return digest
+
+    def parse_url_face(requset_url):
+        stidx = requset_url.index("://")
+        host = requset_url[stidx + 3:]
+        schema = requset_url[:stidx + 3]
+        edidx = host.index("/")
+        if edidx <= 0:
+            raise AssembleHeaderException("invalid request url:" + requset_url)
+        path = host[edidx:]
+        host = host[:edidx]
+        u = Url(host, path, schema)
+        return u
+
+    def assemble_ws_auth_url_face(requset_url, method="GET", api_key="", api_secret=""):
+        u = parse_url_face(requset_url)
+        host = u.host
+        path = u.path
+        now = datetime.now()
+        date = format_date_time(mktime(now.timetuple()))
+        print(date)
+        # date = "Thu, 12 Dec 2019 01:57:27 GMT"
+        signature_origin = "host: {}\ndate: {}\n{} {} HTTP/1.1".format(host, date, method, path)
+        print(signature_origin)
+        signature_sha = hmac.new(api_secret.encode("utf-8"), signature_origin.encode("utf-8"),
+                                digestmod=hashlib.sha256).digest()
+        signature_sha = base64.b64encode(signature_sha).decode(encoding="utf-8")
+        authorization_origin = "api_key=\"%s\", algorithm=\"%s\", headers=\"%s\", signature=\"%s\"" % (
+            api_key, "hmac-sha256", "host date request-line", signature_sha)
+        authorization = base64.b64encode(authorization_origin.encode("utf-8")).decode(encoding="utf-8")
+        print(authorization_origin)
+        values = {
+            "host": host,
+            "date": date,
+            "authorization": authorization
+        }
+
+        return requset_url + "?" + urlencode(values)
+
+    def gen_body_face(appid, img_path, server_id):
+        with open(img_path, "rb") as f:
+            img_data = f.read()
+        body = {
+            "header": {
+                "app_id": appid,
+                "status": 3
+            },
+            "parameter": {
+                server_id: {
+                    "service_kind": "face_detect",
+                    #"detect_points": "1", #检测特征点
+                    #"detect_property": "1", #检测人脸属性
+                    "face_detect_result": {
+                        "encoding": "utf8",
+                        "compress": "raw",
+                        "format": "json"
+                    }
+                }
+            },
+            "payload": {
+                "input1": {
+                    "encoding": "jpg",
+                    "status": 3,
+                    "image": str(base64.b64encode(img_data), "utf-8")
+                }
+            }
+        }
+        return json.dumps(body)
+
+    APPId_face = "0cc32695"
+    APISecret_face = "MDAwNGZiZTk0OTYyZjU5NzMzN2VlYWVi"
+    APIKey_face = "afa7ae78c88a5fb6e93d836ffa941938"
+
+upload img -->
+    ONLINE_IDENT_DATA = ""
+    def run_face(appid, apikey, apisecret, img_path, server_id="s67c9c78c"):
+        url = "http://api.xf-yun.com/v1/private/{}".format(server_id)
+        request_url = assemble_ws_auth_url_face(url, "POST", apikey, apisecret)
+        headers = {"content-type": "application/json", "host": "api.xf-yun.com", "app_id": appid}
+        print(request_url)
+        response = requests.post(request_url, data=gen_body_face(appid, img_path, server_id), headers=headers)
+        resp_data = json.loads(response.content.decode("utf-8"))
+        print(resp_data)
+        picRes=base64.b64decode(resp_data["payload"]["face_detect_result"]["text"]).decode()
+        print(picRes)
+        with open("/root/pic0.txt","w") as f:
+            f.write(picRes)
+        return eval(picRes)
+
+    if __name__ == "__main__":
+        img_path_face = "/root/preset/img/cocorobo_logo.jpg"
+        ONLINE_IDENT_DATA = run_face(appid=APPId_face,apisecret=APISecret_face,apikey=APIKey_face,img_path=img_path_face,)
+
+face_number -->
+    ONLINE_IDENT_DATA["face_num"]
+
+result -->
+    x,y,w,h: ONLINE_IDENT_DATA.get('face_'+str(i)).get('x')
+    conf: ONLINE_IDENT_DATA.get('face_'+str(i)).get('score')
 
 
 }
